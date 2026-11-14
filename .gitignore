@@ -8,3 +8,4 @@ animation/data/*.npz
 animation/data/*_frames/
 animation/data/test_*
 animation/data/preview-*.png
+animation/data/*.webp

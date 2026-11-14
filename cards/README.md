@@ -13,10 +13,13 @@ one with `<picture>` and `prefers-color-scheme`.
 | Row | Definition |
 |---|---|
 | Total stars earned | stars on the user's own public, non-fork repositories |
-| Commits (last year) | public commit contributions in the last 365 days |
-| Pull requests / Issues | all pull requests / issues opened by the user |
+| Commits (last year) | commit contributions to public repositories in the last 365 days |
+| Pull requests / Issues | pull requests / issues the user opened in public repositories (search `is:public`) |
 | Public repositories | the user's own public, non-fork repositories |
-| Languages | GitHub's per-language code size summed over the same repositories (notebook outputs count) |
+| Languages | GitHub's per-language code size summed over the same repositories (notebook outputs count); the top three are named, the rest is "Other" |
+
+Each count is filtered to public repositories inside the query, so a local run with a personal token (which
+can also see private repositories) gives the same card as the workflow.
 
 ## Safety
 

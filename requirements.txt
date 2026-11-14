@@ -1,4 +1,5 @@
-# Only for rebuilding the header animation (animation/). The cards need the standard library only.
+# For rebuilding the header animation (animation/) and the quote card (cards/quote_card.py, Pillow only).
+# The stats card and the tests need the standard library only.
 ase==3.29.0
 numpy==2.5.4
 pillow==13.0.0

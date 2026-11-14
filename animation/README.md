@@ -6,7 +6,8 @@ melted and then cooled until it crystallizes again.
 | Step | Script | Output |
 |---|---|---|
 | 1. Simulate | `crystallization_md.py --shells 6` | `data/cu561_md.npz` (positions, time, temperatures; not committed, 6 MB) |
-| 2. Analyse and render | `render_header.py --system cu561` | `data/cu561_cna_fractions.csv`, `../assets/crystallization-{light,dark}.webp` |
+| 2. Analyse and render | `render_header.py --system cu561 --header` | `data/cu561_cna_fractions.csv`, `../assets/crystallization-{light,dark}.webp` (without `--header`: `data/cu561-{light,dark}.webp`, not committed) |
+| Time-step check | `timestep_check.py` | `data/timestep_check.csv` (constant-energy runs from the 1400 K liquid of step 1) |
 
 ## Simulation
 
@@ -15,7 +16,7 @@ melted and then cooled until it crystallizes again.
 | System | Cu<sub>561</sub>, started as a Mackay icosahedron (`ase.cluster.Icosahedron`, 6 shells), in vacuum |
 | Potential | effective medium theory, EMT (Jacobsen, Stoltze & Nørskov 1996), as shipped with ASE |
 | Thermostat | Langevin, friction 0.02 fs<sup>-1</sup>, centre of mass fixed with `FixCom` |
-| Time step | 5 fs; a frame is saved every 100 steps (0.5 ps). Checked in a 2-ps constant-energy run of the 1400 K liquid: total energy drifts 0.011 meV/atom/ps (0.000 at 2 fs), negligible next to the thermostat |
+| Time step | 5 fs; a frame is saved every 100 steps (0.5 ps). Checked with 2-ps constant-energy runs of the 1400 K liquid from the same start (`timestep_check.py`, `data/timestep_check.csv`): the total energy drifts +0.003 meV/atom/ps and scatters 0.04 meV/atom around its trend at 5 fs, against −0.0004 and 0.007 at 2 fs; negligible next to the energy the thermostat exchanges |
 | Schedule (`--schedule fast`, used for the header) | 300 K for 20 ps → heat to 1400 K over 60 ps (18 K/ps) → hold 20 ps → cool to 300 K over 400 ps (2.75 K/ps) → hold 30 ps |
 | Alternative (`--schedule slow-freeze`) | same heating; cool at 4 K/ps to 1000 K, 1 K/ps to 600 K, 3 K/ps to 300 K; writes `data/cu561_slowfreeze_md.npz` (result below) |
 | Seed | 7 (velocities and Langevin noise) |
@@ -48,8 +49,9 @@ stage, and within 18 K while the cluster freezes, so the thermostat absorbs the 
 | End, 300 K (mean over 500–530 ps) | 12.5 % | 23.5 % | 0.2 % (1 atom) | 63.8 % | 36.2 % |
 
 Only interior atoms can count as crystalline, because a-CNA needs a full shell of neighbours. In the perfect
-starting icosahedron the 300 "other" atoms are the 252 surface atoms plus the 48 on its twelve five-fold
-axes, so its 309 interior atoms (55 %) are about the most that can be crystalline.
+starting icosahedron the 300 "other" atoms are the 252 surface atoms plus the 48 interior atoms on its six
+five-fold axes (four on each side of the centre), so its 309 interior atoms (55 %) are about the most that
+can be crystalline.
 
 - **Melting** (heating at 18 K/ps). The crystalline fraction falls to half its start value at 997 K and below
   1 % at 1262 K. During the hold at 1400 K it never exceeds 0.2 %.
@@ -99,7 +101,8 @@ axes, so its 309 interior atoms (55 %) are about the most that can be crystallin
 ```bash
 pip install -r requirements.txt
 python animation/crystallization_md.py --shells 6           # about 3 h on one CPU core (i5-13400)
-python animation/render_header.py --system cu561            # about 20 min; uses all cores
+python animation/render_header.py --system cu561 --header   # about 20 min; uses all cores
+python animation/timestep_check.py                          # NVE time-step check, a few minutes
 python animation/render_header.py --system cu147 --csv-only # fractions only, for the Cu147 test
 python animation/crystallization_md.py --shells 6 --schedule slow-freeze   # about 4 h
 python animation/render_header.py --system cu561_slowfreeze --csv-only

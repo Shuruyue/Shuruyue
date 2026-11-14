@@ -8,7 +8,10 @@ that follows the animation.
 
 Every number drawn comes from the trajectory file or from OVITO's analysis of it.
 
-Run:  python animation/render_header.py --system cu561 [--frames 120] [--fps 12] [--quality 80]
+Output: animation/data/<system>-{light,dark}.webp, or with --header the published profile header
+assets/crystallization-{light,dark}.webp, so a test render never replaces the header by accident.
+
+Run:  python animation/render_header.py --system cu561 --header [--frames 120] [--fps 12] [--quality 80]
       python animation/render_header.py --system cu147 --csv-only   (structure fractions only)
 """
 
@@ -236,6 +239,8 @@ def main() -> None:
     parser.add_argument("--quality", type=int, default=80)
     parser.add_argument("--skip-render", action="store_true", help="reuse rendered cluster PNGs")
     parser.add_argument("--csv-only", action="store_true", help="write the structure fractions and stop")
+    parser.add_argument("--header", action="store_true",
+                        help="write the profile header in assets/ (default: animation/data/<system>-*.webp)")
     args = parser.parse_args()
 
     if args.system is None:
@@ -275,10 +280,10 @@ def main() -> None:
     for name, theme in THEMES.items():
         imgs = [compose(theme, png_dir / f"{k:04d}.png", k, n_anim, idx, md, fractions, n_atoms)
                 for k in range(n_anim)]
-        out = ASSETS / f"crystallization-{name}.webp"
+        out = ASSETS / f"crystallization-{name}.webp" if args.header else DATA / f"{args.system}-{name}.webp"
         imgs[0].save(out, save_all=True, append_images=imgs[1:], duration=duration, loop=0,
                      quality=args.quality, method=6, lossless=False, allow_mixed=True)
-        imgs[n_anim // 2].save(DATA / f"preview-{name}.png")
+        imgs[n_anim // 2].save(DATA / f"preview-{args.system}-{name}.png")
         print(f"{out.name}: {out.stat().st_size / 1e6:.2f} MB")
 
 

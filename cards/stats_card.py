@@ -1,12 +1,15 @@
 """Build the GitHub stats card (assets/stats-light.svg, assets/stats-dark.svg).
 
-Numbers come from the GitHub GraphQL API (public data only):
+Numbers come from the GitHub GraphQL API, public data only:
   stars earned        sum of stargazers over the user's own public, non-fork repositories
-  commits (last year) public commit contributions in the last 365 days
-  pull requests       all pull requests opened by the user
-  issues              all issues opened by the user
+  commits (last year) commit contributions to public repositories in the last 365 days
+  pull requests       pull requests opened by the user in public repositories (search `is:public`)
+  issues              issues opened by the user in public repositories (search `is:public`)
   public repositories the user's own public, non-fork repositories
   languages           code size per language over the same repositories (GitHub linguist bytes)
+
+Every count is filtered to public repositories in the query itself, so the card is the same whichever
+token builds it: the workflow's GITHUB_TOKEN, or a personal token that can also see private repositories.
 
 Standard library only, so the GitHub Action needs no installs. Token: $GITHUB_TOKEN or $GH_TOKEN,
 or `gh auth token` when run locally.
@@ -29,14 +32,21 @@ from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3})?")
+LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")  # GitHub username rules
 FALLBACK_COLOR = "#8b949e"
+TOP_LANGUAGES = 3  # named in the ring and the legend; the rest is one "Other" segment
 
 QUERY = """
-query($login: String!, $from: DateTime!, $to: DateTime!) {
+query($login: String!, $from: DateTime!, $to: DateTime!, $prSearch: String!, $issueSearch: String!) {
+  prs: search(query: $prSearch, type: ISSUE) { issueCount }
+  issues: search(query: $issueSearch, type: ISSUE) { issueCount }
   user(login: $login) {
-    pullRequests { totalCount }
-    issues { totalCount }
-    contributionsCollection(from: $from, to: $to) { totalCommitContributions }
+    contributionsCollection(from: $from, to: $to) {
+      commitContributionsByRepository(maxRepositories: 100) {
+        repository { isPrivate }
+        contributions { totalCount }
+      }
+    }
     repositories(first: 100, ownerAffiliations: OWNER, isFork: false, privacy: PUBLIC) {
       totalCount
       nodes {
@@ -76,8 +86,12 @@ def token() -> str:
 
 
 def fetch(login: str) -> dict:
+    if not LOGIN.fullmatch(login):  # the login also goes into search strings
+        raise ValueError(f"not a GitHub username: {login!r}")
     now = dt.datetime.now(dt.timezone.utc)
-    variables = {"login": login, "from": (now - dt.timedelta(days=365)).isoformat(), "to": now.isoformat()}
+    variables = {"login": login, "from": (now - dt.timedelta(days=365)).isoformat(), "to": now.isoformat(),
+                 "prSearch": f"author:{login} is:pr is:public",
+                 "issueSearch": f"author:{login} is:issue is:public"}
     body = json.dumps({"query": QUERY, "variables": variables}).encode()
     req = urllib.request.Request("https://api.github.com/graphql", data=body, headers={
         "Authorization": f"bearer {token()}", "Content-Type": "application/json",
@@ -86,7 +100,7 @@ def fetch(login: str) -> dict:
         payload = json.load(resp)
     if "errors" in payload:
         raise RuntimeError(payload["errors"])
-    return payload["data"]["user"]
+    return payload["data"]
 
 
 def safe_color(value: object) -> str:
@@ -96,7 +110,12 @@ def safe_color(value: object) -> str:
     return FALLBACK_COLOR
 
 
-def summarize(user: dict) -> dict:
+def plural(n: int, one: str, many: str | None = None) -> str:
+    return f"{n:,} {one if n == 1 else many or one + 's'}"
+
+
+def summarize(data: dict) -> dict:
+    user = data["user"]
     repos = user["repositories"]["nodes"]
     sizes: dict[str, list] = {}
     for repo in repos:
@@ -107,9 +126,11 @@ def summarize(user: dict) -> dict:
     langs = sorted(((n, s / total, c) for n, (s, c) in sizes.items()), key=lambda x: -x[1])
     return {
         "stars": sum(int(r["stargazerCount"]) for r in repos),
-        "commits": int(user["contributionsCollection"]["totalCommitContributions"]),
-        "prs": int(user["pullRequests"]["totalCount"]),
-        "issues": int(user["issues"]["totalCount"]),
+        "commits": sum(int(c["contributions"]["totalCount"])
+                       for c in user["contributionsCollection"]["commitContributionsByRepository"]
+                       if c["repository"]["isPrivate"] is False),
+        "prs": int(data["prs"]["issueCount"]),
+        "issues": int(data["issues"]["issueCount"]),
         "repos": int(user["repositories"]["totalCount"]),
         "languages": langs,
         "date": dt.date.today().isoformat(),
@@ -135,8 +156,10 @@ def build(stats: dict, theme: dict) -> str:
     )
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" '
            f'viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-labelledby="t">',
-           f"<title id=\"t\">GitHub stats: {stats['stars']} stars, {stats['commits']} commits in the last "
-           f"year, {stats['prs']} pull requests, {stats['issues']} issues</title>",
+           f"<title id=\"t\">GitHub stats: {plural(stats['stars'], 'star')}, "
+           f"{plural(stats['commits'], 'commit')} in the last year, {plural(stats['prs'], 'pull request')}, "
+           f"{plural(stats['issues'], 'issue')}, "
+           f"{plural(stats['repos'], 'public repository', 'public repositories')}</title>",
            f"<style>{css}</style>",
            f'<rect x="0.5" y="0.5" width="{WIDTH - 1}" height="{HEIGHT - 1}" rx="6" fill="{theme["bg"]}" '
            f'stroke="{theme["border"]}"/>']
@@ -148,12 +171,13 @@ def build(stats: dict, theme: dict) -> str:
                    f'<text class="v" x="230" y="0">{value:,}</text></g>')
     out.append(f'<text class="s" x="25" y="{HEIGHT - 14}">public repositories only</text>')
 
-    # language ring: top 4 languages + other
-    cx, cy, r, width = 402, 76, 34, 9
+    # language ring: the top languages + "Other"; the legend below names every segment of the ring
+    cx, cy, r, width = 402, 72, 34, 9
     circ = 2 * 3.141592653589793 * r
-    langs = stats["languages"][:4]
+    langs = stats["languages"][:TOP_LANGUAGES]
     other = 1.0 - sum(f for _, f, _ in langs)
-    segments = langs + ([("Other", other, theme["muted"])] if other > 0.005 else [])
+    # drawn whenever it would show as at least 0.1 %, so the ring has no unlabeled gap
+    segments = langs + ([("Other", other, theme["muted"])] if round(100 * other, 1) > 0 else [])
     out.append(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{theme["track"]}" stroke-width="{width}"/>')
     start = 0.0
     for name, frac, color in segments:
@@ -164,10 +188,10 @@ def build(stats: dict, theme: dict) -> str:
                    f'transform="rotate(-90 {cx} {cy})"><title>{escape(name)} {100 * frac:.1f}%</title></circle>')
         start += length
     out.append(f'<text class="s" x="{cx}" y="{cy - r - 14}" text-anchor="middle">languages by code size</text>')
-    for k, (name, frac, color) in enumerate(segments[:3]):
-        y = 138 + 17 * k
+    for k, (name, frac, color) in enumerate(segments):
+        y = 130 + 15 * k
         out.append(f'<circle cx="{cx - 60}" cy="{y - 4}" r="4.5" fill="{color}"/>'
-                   f'<text class="s" x="{cx - 50}" y="{y}">{escape(name)} {100 * frac:.1f}%</text>')
+                   f'<text class="s lg" x="{cx - 50}" y="{y}">{escape(name)} {100 * frac:.1f}%</text>')
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
