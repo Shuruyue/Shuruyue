@@ -28,4 +28,4 @@ I build small tools for computational materials science and check the numbers th
   </picture>
 </p>
 
-<sub>The header is a real simulation, not a drawing: a copper nanocluster of 561 atoms melted at 1400 K and cooled to 300 K, where it crystallizes again (ASE effective-medium-theory potential, Langevin thermostat), cut in half and colored by adaptive common neighbor analysis in OVITO. Script, settings and data: [animation/](animation/).</sub>
+<sub>The header is a real simulation, not a drawing: a copper nanocluster of 561 atoms is heated to 1400 K, melts, and is cooled to 300 K, where it crystallizes again (ASE effective-medium-theory potential, Langevin thermostat), cut in half and colored by adaptive common neighbor analysis in OVITO. Script, settings and data: [animation/](animation/).</sub>
