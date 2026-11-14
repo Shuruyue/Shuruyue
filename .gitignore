@@ -2,8 +2,9 @@
 __pycache__/
 *.log
 
-# large or intermediate animation files (rebuilt by animation/render_header.py)
+# large or intermediate animation files (rebuilt by the scripts in animation/)
 animation/data/*.xyz
+animation/data/*.npz
 animation/data/*_frames/
 animation/data/test_*
 animation/data/preview-*.png

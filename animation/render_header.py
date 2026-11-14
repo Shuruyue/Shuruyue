@@ -44,9 +44,13 @@ STRUCTURES = [  # (a-CNA type, label, RGB 0-1); same colors in the render and th
     (CNA.ICO, "ico", (0.90, 0.71, 0.26)),
     (CNA.OTHER, "other", (0.84, 0.84, 0.86)),
 ]
+# Opaque card on GitHub's page colour, framed like the stats and quote cards. (A transparent WebP was
+# twice the size: the alpha plane cost as much as the picture.)
 THEMES = {
-    "light": {"text": (31, 35, 40), "muted": (101, 109, 118), "grid": (208, 215, 222), "line": (9, 105, 218)},
-    "dark": {"text": (230, 237, 243), "muted": (139, 148, 158), "grid": (48, 54, 61), "line": (88, 166, 255)},
+    "light": {"page": (255, 255, 255), "border": (208, 215, 222), "text": (31, 35, 40), "muted": (101, 109, 118),
+              "grid": (208, 215, 222), "line": (9, 105, 218)},
+    "dark": {"page": (13, 17, 23), "border": (48, 54, 61), "text": (230, 237, 243), "muted": (139, 148, 158),
+             "grid": (48, 54, 61), "line": (88, 166, 255)},
 }
 
 
@@ -76,6 +80,9 @@ def cna_modifier() -> CommonNeighborAnalysisModifier:
     mod = CommonNeighborAnalysisModifier(mode=CommonNeighborAnalysisModifier.Mode.AdaptiveCutoff)
     for kind, _, color in STRUCTURES:
         mod.structures[kind].color = color
+    # a-CNA also finds bcc (at most 11 atoms in any frame of the Cu561 run); the chart counts them as "other",
+    # so color them alike
+    mod.structures[CNA.BCC].color = STRUCTURES[-1][2]
     return mod
 
 
@@ -130,7 +137,9 @@ def draw_text_sub(draw: ImageDraw.ImageDraw, xy, parts, fill, size: int) -> None
 
 def compose(theme: dict, cluster_png: Path, k: int, n_anim: int, idx: np.ndarray, md: dict,
             fractions: np.ndarray, n_atoms: int) -> Image.Image:
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    img = Image.new("RGBA", (W, H), theme["page"] + (255,))
+    ImageDraw.Draw(img).rounded_rectangle([0, 0, W - 1, H - 1], radius=round(10 * S),
+                                          outline=theme["border"], width=1)
     cluster = Image.open(cluster_png).convert("RGBA")
     fade = min(1.0, (k + 1) / FADE, (n_anim - k) / FADE)
     if fade < 1.0:
@@ -200,15 +209,17 @@ def compose(theme: dict, cluster_png: Path, k: int, n_anim: int, idx: np.ndarray
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--system", default=None, help="cu147 or cu561 (default: the largest available)")
-    parser.add_argument("--frames", type=int, default=140)
-    parser.add_argument("--quality", type=int, default=75)
-    parser.add_argument("--fps", type=float, default=16.0)
+    parser.add_argument("--system", default=None,
+                        help="cu147, cu561 or cu561_slowfreeze (default: the largest cu<N> run with the fast schedule)")
+    parser.add_argument("--frames", type=int, default=120)
+    parser.add_argument("--fps", type=float, default=12.0)
+    parser.add_argument("--quality", type=int, default=60)
     parser.add_argument("--skip-render", action="store_true", help="reuse rendered cluster PNGs")
     args = parser.parse_args()
 
     if args.system is None:
-        found = sorted(DATA.glob("cu*_md.npz"), key=lambda p: int(p.stem[2:].split("_")[0]))
+        found = sorted((p for p in DATA.glob("cu*_md.npz") if p.stem.count("_") == 1),
+                       key=lambda p: int(p.stem[2:].split("_")[0]))
         args.system = found[-1].stem.replace("_md", "")
     md = dict(np.load(DATA / f"{args.system}_md.npz"))
     frames = kabsch_align(md["positions"].astype(np.float64))
@@ -239,7 +250,7 @@ def main() -> None:
     ASSETS.mkdir(exist_ok=True)
     duration = int(round(1000 / args.fps))
     for name, theme in THEMES.items():
-        imgs = [compose(theme, png_dir / f"{k:04d}.png", k, n_anim, idx, md, fractions, n_atoms)
+        imgs = [compose(theme, png_dir / f"{k:04d}.png", k, n_anim, idx, md, fractions, n_atoms).convert("RGB")
                 for k in range(n_anim)]
         out = ASSETS / f"crystallization-{name}.webp"
         imgs[0].save(out, save_all=True, append_images=imgs[1:], duration=duration, loop=0,

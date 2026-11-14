@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="840" height="200" viewBox="0 0 840 200" role="img" aria-label="Header animation in progress">
-<style>.t{font:600 17px -apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#1f2328}.s{font:13px -apple-system,'Segoe UI',Helvetica,Arial,sans-serif;fill:#656d76}.d{animation:p 1.6s infinite}@keyframes p{50%{opacity:.25}}</style>
-<rect x="1" y="1" width="838" height="198" rx="10" fill="#f6f8fa" stroke="#d0d7de" stroke-dasharray="6 5" stroke-width="1.5"/>
-<circle class="d" cx="420" cy="46" r="5" fill="#3fb950"/>
-<text class="t" x="420" y="78" text-anchor="middle">Header animation: simulation still running</text>
-<text class="s" x="420" y="112" text-anchor="middle">A copper nanocluster (561 atoms) melted at 1400 K and cooled to 300 K, molecular dynamics with ASE.</text>
-<text class="s" x="420" y="134" text-anchor="middle">About 3 hours of computation left; the rendered animation goes here around 17:00 Taiwan time, 14 Nov 2026.</text>
-</svg>

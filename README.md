@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/header-placeholder-dark.svg">
-    <img src="assets/header-placeholder-light.svg" width="840" alt="Molecular dynamics of a copper nanocluster that melts and then recrystallizes; its cut face is colored by local crystal structure">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/crystallization-dark.webp">
+    <img src="assets/crystallization-light.webp" width="840" alt="Molecular dynamics of a copper nanocluster that melts and then recrystallizes; its cut face is colored by local crystal structure">
   </picture>
 </p>
 
@@ -28,4 +28,4 @@ I build small tools for computational materials science and check the numbers th
   </picture>
 </p>
 
-<sub>The header is a real simulation, not a drawing: a copper nanocluster melted at 1400 K and cooled to 300 K (ASE effective-medium-theory potential, Langevin thermostat), cut in half and colored by adaptive common neighbor analysis in OVITO. Script, settings and data: [animation/](animation/).</sub>
+<sub>The header is a real simulation, not a drawing: a copper nanocluster of 561 atoms melted at 1400 K and cooled to 300 K, where it crystallizes again (ASE effective-medium-theory potential, Langevin thermostat), cut in half and colored by adaptive common neighbor analysis in OVITO. Script, settings and data: [animation/](animation/).</sub>
