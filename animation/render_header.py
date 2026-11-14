@@ -1,10 +1,13 @@
 """Turn the MD trajectory into the profile header: an animated WebP (light and dark versions).
 
-Left: the cluster, cut in half so the inside is visible, rendered by OVITO's Tachyon ray tracer with
-ambient occlusion; atoms colored by adaptive common neighbor analysis (a-CNA, computed on the whole
-cluster before the cut). The camera makes one full turn per loop.
-Right: the temperature schedule and the a-CNA structure fractions of the whole run, with a cursor
-that follows the animation.
+Laid out like a journal figure (panel letters, axis titles with italic symbols and units in brackets,
+outward ticks, no grid, Arial):
+(a) the cluster, cut in half so the inside is visible, rendered by OVITO's Tachyon ray tracer with
+    ambient occlusion; atoms colored by adaptive common neighbor analysis (a-CNA, computed on the whole
+    cluster before the cut). The camera makes one full turn per loop.
+(b) the thermostat set point and the measured kinetic temperature against time;
+(c) the a-CNA fractions (fcc, hcp, ico and their sum) against time, below the interior-atom bound.
+Panels b and c are drawn up to the current frame; a faint vertical line marks it.
 
 Every number drawn comes from the trajectory file or from OVITO's analysis of it.
 
@@ -18,6 +21,7 @@ Run:  python animation/render_header.py --system cu561 --header [--frames 120] [
 from __future__ import annotations
 
 import argparse
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -31,7 +35,8 @@ from PIL import Image, ImageDraw, ImageFont
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "data"
 ASSETS = HERE.parent / "assets"
-FONT = "C:/Windows/Fonts/CascadiaMono.ttf"  # Cascadia Mono, SIL Open Font License
+FONTS = {"": "C:/Windows/Fonts/arial.ttf", "i": "C:/Windows/Fonts/ariali.ttf",  # Arial, the usual
+         "b": "C:/Windows/Fonts/arialbd.ttf"}                                 # journal-figure font
 
 S = 2                          # output pixels per display pixel: sharp on high-DPI screens, and lossy WebP's
                                # half-resolution colour then still matches a standard screen's pixels
@@ -128,106 +133,163 @@ def render_cluster(xyz: Path, n_frames: int, extent: float, out_dir: Path) -> No
 
 
 C = S * SS                     # chart canvas pixels per display pixel
+T_RANGE = (200.0, 1550.0)      # temperature axis, K
+F_MAX = 0.6                    # structure-fraction axis
+INTERIOR = 309 / 561           # interior atoms of the Mackay icosahedron: about the most that can be crystalline
 
 
-def font(size: float) -> ImageFont.FreeTypeFont:
-    """Cascadia Mono at `size` display pixels, for the chart canvas."""
-    return ImageFont.truetype(FONT, round(size * C))
+@lru_cache(maxsize=None)
+def font(size: float, style: str = "") -> ImageFont.FreeTypeFont:
+    """Arial at `size` display pixels, for the chart canvas; style "" regular, "i" italic, "b" bold."""
+    return ImageFont.truetype(FONTS[style], round(size * C))
+
+
+def part_font(size: float, style: str) -> ImageFont.FreeTypeFont:
+    return font(size * 0.72) if style == "sub" else font(size, style)
 
 
 def text_parts(draw: ImageDraw.ImageDraw, xy, parts, fill, size: float, anchor: str = "left") -> None:
-    """Draw text where parts = [(text, is_subscript), ...]; xy in canvas pixels, top of the line."""
-    fonts = [font(size * 0.72) if sub else font(size) for _, sub in parts]
-    width = sum(draw.textlength(text, font=f) for (text, _), f in zip(parts, fonts))
+    """Draw parts = [(text, style), ...] on one baseline. Styles: "" roman, "i" italic (quantity symbols),
+    "b" bold, "sub" subscript. xy is on the baseline, at the left end, the right end or the centre."""
+    width = sum(draw.textlength(text, font=part_font(size, style)) for text, style in parts)
     x, y = xy
-    if anchor == "right":
-        x -= width
-    for (text, sub), f in zip(parts, fonts):
-        draw.text((x, y + (size * 0.42 * C if sub else 0)), text, font=f, fill=fill)
+    x -= {"left": 0.0, "right": width, "center": width / 2}[anchor]
+    for text, style in parts:
+        f = part_font(size, style)
+        draw.text((x, y + (0.22 * size * C if style == "sub" else 0)), text, font=f, fill=fill, anchor="ls")
         x += draw.textlength(text, font=f)
+
+
+def vertical_text(canvas: Image.Image, center, parts, fill, size: float) -> None:
+    """An axis title turned 90 degrees (read bottom to top), centred on `center` in canvas pixels."""
+    probe = ImageDraw.Draw(canvas)
+    width = sum(probe.textlength(text, font=part_font(size, style)) for text, style in parts)
+    # transparent layer in the text colour, so the antialiased edges blend without a dark fringe
+    layer = Image.new("RGBA", (round(width) + 4, round(1.6 * size * C)), tuple(fill) + (0,))
+    text_parts(ImageDraw.Draw(layer), (2, round(1.15 * size * C)), parts, tuple(fill) + (255,), size)
+    layer = layer.rotate(90, expand=True)
+    canvas.paste(layer, (round(center[0] - layer.width / 2), round(center[1] - layer.height / 2)), layer)
 
 
 def compose(theme: dict, cluster_png: Path, k: int, n_anim: int, idx: np.ndarray, md: dict,
             fractions: np.ndarray, n_atoms: int) -> Image.Image:
-    """One animation frame. Layout numbers are display pixels (the README shows the card at 840 x 280)."""
+    """One animation frame, laid out like a journal figure: (a) the snapshot, (b) temperature, (c) structure.
+    Layout numbers are display pixels (the README shows the card at 840 x 280)."""
     canvas = Image.new("RGB", (W * SS, H * SS), theme["page"])
     d = ImageDraw.Draw(canvas)
     d.rounded_rectangle([0, 0, W * SS - 1, H * SS - 1], radius=10 * C, outline=theme["border"], width=C)
+    ink, muted = theme["text"], theme["muted"]
+    xy = lambda x, y: (x * C, y * C)
 
     def hline(xa, xb, y, fill):  # 1 display pixel thick, on the display pixel grid: crisp after scaling
         y = round(y)
         d.rectangle([round(xa) * C, y * C, round(xb) * C - 1, (y + 1) * C - 1], fill=fill)
 
-    t, temp_target, temp_kin = md["time_ps"], md["target_K"], md["kinetic_K"]
-    i_now = idx[k]
-    x0, x1 = 316, 828
-    to_x = lambda tt: x0 + (x1 - x0) * tt / t[-1]
-    xy = lambda x, y: (x * C, y * C)
+    def vline(x, ya, yb, fill):
+        x = round(x)
+        d.rectangle([x * C, round(ya) * C, (x + 1) * C - 1, round(yb) * C - 1], fill=fill)
 
-    text_parts(d, xy(x0, 16), [("Cu", False), (str(n_atoms), True),
-                               (" nanocluster: melt, then recrystallize", False)], theme["text"], 13)
-    text_parts(d, xy(x1, 18), [(f"t = {t[i_now]:.0f} ps   T", False), ("set", True),
-                               (f" = {temp_target[i_now]:.0f} K", False)], theme["muted"], 11, anchor="right")
+    def panel_label(x, y, letter):
+        d.text(xy(x, y), letter, font=font(13, "b"), fill=ink, anchor="lt")
 
-    # temperature panel: thermostat set point (line) and the cluster's instantaneous kinetic temperature
-    ty0, ty1 = 58, 124
-    to_yt = lambda temp: ty1 - (ty1 - ty0) * temp / 1500.0
-    for temp in (300, 900, 1500):
-        hline(x0, x1, to_yt(temp), theme["grid"])
-        d.text(xy(x0 - 4, to_yt(temp)), f"{temp}", font=font(10), fill=theme["muted"], anchor="rm")
-    d.text(xy(x0 - 4, ty0 - 12), "T / K", font=font(10), fill=theme["muted"], anchor="rm")
-    kin_color = tuple((g + m) // 2 for g, m in zip(theme["grid"], theme["muted"]))
-    d.line([xy(to_x(a), to_yt(b)) for a, b in zip(t, temp_kin)], fill=kin_color, width=C)
-    pts = [xy(to_x(a), to_yt(b)) for a, b in zip(t, temp_target)]
-    d.line(pts[: i_now + 1], fill=theme["line"], width=2 * C, joint="curve")
-    d.line(pts[i_now:], fill=theme["muted"], width=C, joint="curve")
-    cx, cy = pts[i_now]
-    d.ellipse([cx - 4 * C, cy - 4 * C, cx + 4 * C, cy + 4 * C], fill=theme["line"])
-    # key for the two temperature lines, in the empty top-right corner of the panel
-    lx = x1
-    for label, color, width in (("kinetic", kin_color, 1), ("set point", theme["line"], 2)):
-        lx -= d.textlength(label, font=font(10)) / C
-        d.text(xy(lx, 66), label, font=font(10), fill=theme["muted"], anchor="lm")
-        d.line([xy(lx - 18, 66), xy(lx - 5, 66)], fill=color, width=width * C)
-        lx -= 30
+    def knockout(xa, ya, xb, yb):  # page-coloured patch: the moving cursor line breaks behind a label
+        d.rectangle([xa * C, ya * C, xb * C, yb * C], fill=theme["page"])
 
-    # structure-fraction panel (stacked areas, revealed up to the cursor)
-    fy0, fy1 = 146, 238
-    to_yf = lambda f: fy1 - (fy1 - fy0) * f
-    d.text(xy(x0 - 4, fy0 - 12), "a-CNA", font=font(10), fill=theme["muted"], anchor="rm")
-    for f in (0.0, 0.5, 1.0):
-        hline(x0, x1, to_yf(f), theme["grid"])
-        d.text(xy(x0 - 4, to_yf(f)), f"{f:.1f}", font=font(10), fill=theme["muted"], anchor="rm")
-    cum = np.cumsum(fractions, axis=1)
-    lower = np.zeros(len(t))
-    sl = slice(0, i_now + 1)
-    for j, (_, _, color) in enumerate(STRUCTURES):
-        upper = cum[:, j]
-        poly = [xy(to_x(a), to_yf(b)) for a, b in zip(t[sl], upper[sl])]
-        poly += [xy(to_x(a), to_yf(b)) for a, b in zip(t[sl][::-1], lower[sl][::-1])]
-        if len(poly) >= 3:
-            d.polygon(poly, fill=tuple(int(255 * c) for c in color))
-        lower = upper
-    d.line([(cx, fy0 * C), (cx, fy1 * C)], fill=theme["text"], width=C)
-    for tick in range(0, int(t[-1]) + 1, 100):
-        d.text(xy(to_x(tick), fy1 + 4), f"{tick}", font=font(10), fill=theme["muted"], anchor="mt")
-    d.text(xy(x1, fy1 + 4), "ps", font=font(10), fill=theme["muted"], anchor="rt")
-
-    # legend with the current fractions
-    lx = x0
-    for j, (_, label, color) in enumerate(STRUCTURES):
-        d.rectangle([lx * C, 261 * C, (lx + 10) * C - 1, 271 * C - 1], fill=tuple(int(255 * c) for c in color))
-        d.text(xy(lx + 15, 266), f"{label} {100 * fractions[i_now, j]:4.1f}%", font=font(11),
-               fill=theme["text"], anchor="lm")
-        lx += 128
-
-    img = canvas.resize((W, H), Image.BOX)
+    # (a) the cluster, pasted first so the labels sit on top (nearest-neighbour upscaling followed by the
+    # final box downscaling returns the rendered pixels unchanged)
     cluster = Image.open(cluster_png).convert("RGBA")
     fade = min(1.0, (k + 1) / FADE, (n_anim - k) / FADE)
     if fade < 1.0:
         cluster.putalpha(cluster.getchannel("A").point(lambda a: int(a * fade)))
-    img.paste(cluster, (0, 0), cluster)
-    return img
+    cluster = cluster.resize((cluster.width * SS, cluster.height * SS), Image.NEAREST)
+    canvas.paste(cluster, (0, 0), cluster)
+    panel_label(12, 10, "a")
+    text_parts(d, xy(CLUSTER // S - 12, 21), [("Cu", ""), (str(n_atoms), "sub")], ink, 11, anchor="right")
+    for j, (_, name, color) in enumerate(STRUCTURES):  # colour key of the snapshot, bottom-left corner
+        y = 232 + 12 * j
+        d.ellipse([(18 - 3.5) * C, (y - 7.5) * C, (18 + 3.5) * C, (y - 0.5) * C],
+                  fill=tuple(int(255 * c) for c in color), outline=muted if name == "other" else None,
+                  width=C // 2)
+        d.text(xy(26, y), name, font=font(10), fill=ink, anchor="ls")
+
+    t, temp_target, temp_kin = md["time_ps"], md["target_K"], md["kinetic_K"]
+    i_now = idx[k]
+    x0, x1 = 352, 820
+    to_x = lambda tt: x0 + (x1 - x0) * tt / t[-1]
+    cx = to_x(t[i_now])
+
+    def axes(ya, yb, yticks, xlabels):
+        """Left and bottom axis lines with outward ticks; time ticks every 100 ps."""
+        vline(x0, ya, yb + 1, ink)
+        hline(x0, x1 + 1, yb, ink)
+        for y, text in yticks:
+            hline(x0 - 3, x0, y, ink)
+            d.text(xy(x0 - 6, y), text, font=font(10), fill=ink, anchor="rm")
+        for tick in range(0, int(t[-1]) + 1, 100):
+            vline(to_x(tick), yb + 1, yb + 4, ink)
+            if xlabels:
+                d.text(xy(to_x(tick), yb + 6), f"{tick}", font=font(10), fill=ink, anchor="mt")
+
+    # (b) thermostat set point (the whole schedule, drawn up to now) and the measured kinetic temperature
+    yb0, yb1 = 30, 112
+    to_yt = lambda temp: yb1 - (yb1 - yb0) * (temp - T_RANGE[0]) / (T_RANGE[1] - T_RANGE[0])
+    panel_label(300, 10, "b")
+    text_parts(d, xy(x1, 19), [("t", "i"), (f" = {t[i_now]:.0f} ps", ""), ("      T", "i"), ("set", "sub"),
+                               (f" = {temp_target[i_now]:.0f} K", "")], ink, 11, anchor="right")
+    vline(cx, yb0, yb1, theme["grid"])
+    axes(yb0, yb1, [(to_yt(v), f"{v}") for v in (300, 900, 1500)], xlabels=False)
+    vertical_text(canvas, xy(312, (yb0 + yb1) / 2), [("T", "i"), (" (K)", "")], ink, 10.5)
+    kin_color = tuple((g + m) // 2 for g, m in zip(theme["grid"], muted))
+    now = slice(0, i_now + 1)
+    kin = [xy(to_x(a), to_yt(b)) for a, b in zip(t[now], temp_kin[now])]
+    pts = [xy(to_x(a), to_yt(b)) for a, b in zip(t, temp_target)]
+    if len(kin) > 1:
+        d.line(kin, fill=kin_color, width=C)
+    d.line(pts[i_now:], fill=muted, width=C, joint="curve")
+    if i_now > 0:
+        d.line(pts[: i_now + 1], fill=theme["line"], width=round(1.5 * C), joint="curve")
+    px, py = pts[i_now]
+    d.ellipse([px - 3.5 * C, py - 3.5 * C, px + 3.5 * C, py + 3.5 * C], fill=theme["line"])
+    key_b = (("set point", theme["line"], 1.5), ("kinetic", kin_color, 1.0))
+    widest = max(d.textlength(name, font=font(10)) for name, _, _ in key_b) / C
+    knockout(x1 - widest - 25, 33, x1 + 1, 60)
+    for j, (name, color, width) in enumerate(key_b):
+        y = 40 + 13 * j
+        tw = d.textlength(name, font=font(10)) / C
+        d.text(xy(x1, y), name, font=font(10), fill=ink, anchor="rm")
+        d.line([xy(x1 - tw - 22, y), xy(x1 - tw - 6, y)], fill=color, width=round(width * C))
+
+    # (c) a-CNA fractions; "other" is the rest. Dashed: the interior atoms, about the crystalline maximum
+    yc0, yc1 = 146, 236
+    to_yf = lambda f: yc1 - (yc1 - yc0) * f / F_MAX
+    panel_label(300, 132, "c")
+    vline(cx, yc0, yc1, theme["grid"])
+    axes(yc0, yc1, [(to_yf(v), f"{v:.1f}") for v in (0.0, 0.2, 0.4, 0.6)], xlabels=True)
+    vertical_text(canvas, xy(312, (yc0 + yc1) / 2), [("Fraction", "")], ink, 10.5)
+    text_parts(d, xy((x0 + x1) / 2, 267), [("t", "i"), (" (ps)", "")], ink, 10.5, anchor="center")
+    y_int = to_yf(INTERIOR)
+    for xa in range(x0 + 2, x1, 6):
+        hline(xa, min(xa + 3, x1), y_int, muted)
+    bound = "interior atoms (upper bound)"
+    knockout(x1 - d.textlength(bound, font=font(9)) / C - 3, y_int - 13, x1 + 1, round(y_int) - 0.5)
+    d.text(xy(x1, y_int - 2), bound, font=font(9), fill=muted, anchor="rb")
+    rgb = [tuple(int(255 * c) for c in color) for _, _, color in STRUCTURES]
+    series = [(fractions[:, 2], rgb[2], 1.0, "ico"), (fractions[:, 0], rgb[0], 1.0, "fcc"),
+              (fractions[:, 1], rgb[1], 1.0, "hcp"), (fractions[:, :3].sum(axis=1), ink, 1.5, "fcc + hcp + ico")]
+    for values, color, width, _ in series:
+        line = [xy(to_x(a), to_yf(b)) for a, b in zip(t[now], values[now])]
+        if len(line) > 1:
+            d.line(line, fill=color, width=round(width * C), joint="curve")
+    lx = to_x(130)  # legend in the empty stretch of the liquid, where every fraction is ~0
+    key_c = list(reversed(series))
+    widest = max(d.textlength(name, font=font(10)) for *_, name in key_c) / C
+    knockout(lx - 3, 161, lx + 24 + widest, 172 + 12 * (len(key_c) - 1) + 4)
+    for j, (_, color, width, name) in enumerate(key_c):
+        y = 172 + 12 * j
+        d.line([xy(lx, y - 3.5), xy(lx + 16, y - 3.5)], fill=color, width=round(width * C))
+        d.text(xy(lx + 21, y), name, font=font(10), fill=ink, anchor="ls")
+
+    return canvas.resize((W, H), Image.BOX)
 
 
 def main() -> None:

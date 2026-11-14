@@ -29,9 +29,11 @@ melted and then cooled until it crystallizes again.
 - Picture: each frame is centred and its rigid rotation relative to the previous frame removed (Kabsch);
   the cluster is then turned once around the vertical axis per loop, cut in half facing the camera so the
   inside shows, and ray traced with OVITO's Tachyon renderer (ambient occlusion).
-- The chart next to it is drawn from the same files: the thermostat set point (blue, read out as
-  T<sub>set</sub>) with the cluster's instantaneous kinetic temperature behind it (grey), and the a-CNA
-  fractions up to the current frame.
+- The picture is panel a of a figure laid out like a journal figure (panel letters, axis titles with italic
+  symbols and units in brackets, outward ticks, no grid, Arial). Panels b and c are drawn from the same
+  files, up to the current frame: (b) the thermostat set point (blue, read out as T<sub>set</sub>) and the
+  cluster's instantaneous kinetic temperature (grey); (c) the fcc, hcp and icosahedral fractions and their
+  sum, under a dashed line at the interior-atom fraction (55 %), about the most that can be crystalline.
 - Output: 120 frames at 12 frames/s, 1680 × 560 pixels shown at 840 × 280. Twice the display size keeps it
   sharp on high-density screens, and lossy WebP (quality 80) stores colour at half resolution, which then
   still matches a standard screen's pixels. The chart is drawn at twice that again and scaled down.
@@ -108,5 +110,5 @@ python animation/crystallization_md.py --shells 6 --schedule slow-freeze   # abo
 python animation/render_header.py --system cu561_slowfreeze --csv-only
 ```
 
-`render_header.py` uses Cascadia Mono (SIL Open Font License) from the Windows fonts folder; change `FONT` on
-other systems.
+`render_header.py` uses Arial (regular, italic and bold) from the Windows fonts folder; change `FONTS` on other
+systems.
