@@ -29,9 +29,9 @@ DATA = HERE / "data"
 ASSETS = HERE.parent / "assets"
 FONT = "C:/Windows/Fonts/CascadiaMono.ttf"  # Cascadia Mono, SIL Open Font License
 
-S = 2                          # pixel scale (2 = sharp on high-DPI screens)
-W, H = 840 * S, 280 * S        # canvas; displayed at 840 x 280 in the README
-CLUSTER = 280 * S              # square cluster panel on the left
+S = 1.5                        # pixel scale (> 1 keeps it sharp on high-DPI screens)
+W, H = int(840 * S), int(280 * S)   # canvas; displayed at 840 x 280 in the README
+CLUSTER = int(280 * S)         # square cluster panel on the left
 RADIUS = 1.2                   # sphere radius, Angstrom (Cu nearest-neighbour distance ~2.55)
 CAMERA_DIR = np.array([0.0, 1.0, -0.28])
 CAMERA_DIR /= np.linalg.norm(CAMERA_DIR)
@@ -99,8 +99,9 @@ def render_cluster(xyz: Path, n_frames: int, extent: float, out_dir: Path) -> No
     pipeline.modifiers.append(SliceModifier(normal=tuple(-CAMERA_DIR), distance=0.0))
     pipeline.add_to_scene()
     distance = 4.2 * extent
+    # OVITO's fov is the full opening angle; leave a 10 % margin around the largest extent
     vp = Viewport(type=Viewport.Type.Perspective, camera_pos=tuple(-CAMERA_DIR * distance),
-                  camera_dir=tuple(CAMERA_DIR), fov=np.arctan(1.25 * extent / distance))
+                  camera_dir=tuple(CAMERA_DIR), fov=2 * np.arctan(1.1 * extent / distance))
     renderer = TachyonRenderer(ambient_occlusion=True, ambient_occlusion_brightness=0.85,
                                ambient_occlusion_samples=24, shadows=False, antialiasing_samples=16,
                                direct_light_intensity=0.95)
@@ -114,7 +115,7 @@ def render_cluster(xyz: Path, n_frames: int, extent: float, out_dir: Path) -> No
 
 
 def font(size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(FONT, size * S)
+    return ImageFont.truetype(FONT, round(size * S))
 
 
 def draw_text_sub(draw: ImageDraw.ImageDraw, xy, parts, fill, size: int) -> None:
@@ -143,23 +144,23 @@ def compose(theme: dict, cluster_png: Path, k: int, n_anim: int, idx: np.ndarray
     x0, x1 = 316 * S, 828 * S
     to_x = lambda tt: x0 + (x1 - x0) * tt / t[-1]
 
-    draw_text_sub(d, (x0, 14 * S), [("Cu", False), (str(n_atoms), True),
+    draw_text_sub(d, (x0, 16 * S), [("Cu", False), (str(n_atoms), True),
                                      (" nanocluster: melt, then recrystallize", False)], theme["text"], 13)
-    d.text((x0, 38 * S), f"t = {t[i_now]:5.1f} ps    T = {temp_target[i_now]:6.0f} K",
-           font=font(12), fill=theme["muted"])
+    d.text((x1, 18 * S), f"t = {t[i_now]:.0f} ps   T = {temp_target[i_now]:.0f} K",
+           font=font(11), fill=theme["muted"], anchor="ra")
 
     # temperature panel
-    ty0, ty1 = 64 * S, 128 * S
+    ty0, ty1 = 58 * S, 124 * S
     to_yt = lambda temp: ty1 - (ty1 - ty0) * (temp - 0.0) / 1500.0
     for temp in (300, 900, 1500):
-        d.line([(x0, to_yt(temp)), (x1, to_yt(temp))], fill=theme["grid"], width=1 * S // 2 or 1)
+        d.line([(x0, to_yt(temp)), (x1, to_yt(temp))], fill=theme["grid"], width=1)
         d.text((x0 - 4 * S, to_yt(temp)), f"{temp}", font=font(9), fill=theme["muted"], anchor="rm")
     d.text((x0 - 4 * S, ty0 - 12 * S), "T / K", font=font(9), fill=theme["muted"], anchor="rm")
     pts_kin = [(to_x(a), to_yt(b)) for a, b in zip(t, temp_kin)]
-    d.line(pts_kin, fill=theme["grid"], width=S)
+    d.line(pts_kin, fill=theme["grid"], width=round(S))
     pts = [(to_x(a), to_yt(b)) for a, b in zip(t, temp_target)]
-    d.line(pts[: i_now + 1], fill=theme["line"], width=2 * S)
-    d.line(pts[i_now:], fill=theme["muted"], width=S)
+    d.line(pts[: i_now + 1], fill=theme["line"], width=round(2 * S))
+    d.line(pts[i_now:], fill=theme["muted"], width=round(S))
     cx, cy = pts[i_now]
     d.ellipse([cx - 4 * S, cy - 4 * S, cx + 4 * S, cy + 4 * S], fill=theme["line"])
 
@@ -181,7 +182,7 @@ def compose(theme: dict, cluster_png: Path, k: int, n_anim: int, idx: np.ndarray
         if len(poly) >= 3:
             d.polygon(poly, fill=rgb + (235,))
         lower = upper
-    d.line([(cx, fy0), (cx, fy1)], fill=theme["text"], width=S)
+    d.line([(cx, fy0), (cx, fy1)], fill=theme["text"], width=round(S))
     for tick in range(0, int(t[-1]) + 1, 100):
         d.text((to_x(tick), fy1 + 4 * S), f"{tick}", font=font(9), fill=theme["muted"], anchor="mt")
     d.text((x1, fy1 + 4 * S), "ps", font=font(9), fill=theme["muted"], anchor="rt")
@@ -200,7 +201,8 @@ def compose(theme: dict, cluster_png: Path, k: int, n_anim: int, idx: np.ndarray
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--system", default=None, help="cu147 or cu561 (default: the largest available)")
-    parser.add_argument("--frames", type=int, default=160)
+    parser.add_argument("--frames", type=int, default=140)
+    parser.add_argument("--quality", type=int, default=75)
     parser.add_argument("--fps", type=float, default=16.0)
     parser.add_argument("--skip-render", action="store_true", help="reuse rendered cluster PNGs")
     args = parser.parse_args()
@@ -225,7 +227,9 @@ def main() -> None:
     idx = np.linspace(0, len(frames) - 1, n_anim).round().astype(int)
     angles = 2 * np.pi * np.arange(n_anim) / n_anim
     anim = np.array([rotate_z(frames[i], a) for i, a in zip(idx, angles)])
-    extent = float(np.linalg.norm(frames, axis=2).max()) + RADIUS
+    # framing: 99.5th percentile of the atoms' distance from the centre over the whole run, so a
+    # single atom that wanders off in the liquid does not shrink the picture
+    extent = float(np.percentile(np.linalg.norm(frames, axis=2), 99.5)) + RADIUS
     png_dir = DATA / f"{args.system}_frames"
     if not args.skip_render:
         anim_xyz = DATA / f"{args.system}_anim.xyz"
@@ -239,7 +243,7 @@ def main() -> None:
                 for k in range(n_anim)]
         out = ASSETS / f"crystallization-{name}.webp"
         imgs[0].save(out, save_all=True, append_images=imgs[1:], duration=duration, loop=0,
-                     quality=82, method=6, lossless=False)
+                     quality=args.quality, method=6, lossless=False, minimize_size=True, allow_mixed=True)
         imgs[n_anim // 2].save(DATA / f"preview-{name}.png")
         print(f"{out.name}: {out.stat().st_size / 1e6:.2f} MB")
 

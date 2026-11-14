@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-### Hi, I'm Shuru 👋
+### Hi, I'm Shuru
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/stats-dark.svg">

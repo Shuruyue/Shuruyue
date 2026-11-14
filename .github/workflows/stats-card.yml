@@ -5,20 +5,24 @@ on:
     - cron: "17 3 * * *"   # daily, 03:17 UTC
   workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: {}            # nothing by default; the job below asks only for what it needs
+
+concurrency:
+  group: stats-card
+  cancel-in-progress: false
 
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write      # to commit the regenerated card
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Build the card from the GitHub API
-        run: python cards/stats_card.py --user "${{ github.repository_owner }}"
+        run: python3 cards/stats_card.py --user "$OWNER"
         env:
+          OWNER: ${{ github.repository_owner }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Commit only if the numbers changed
         run: |

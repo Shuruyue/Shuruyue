@@ -21,12 +21,15 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import subprocess
 import urllib.request
 from html import escape
 from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
+HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3})?")
+FALLBACK_COLOR = "#8b949e"
 
 QUERY = """
 query($login: String!, $from: DateTime!, $to: DateTime!) {
@@ -86,21 +89,28 @@ def fetch(login: str) -> dict:
     return payload["data"]["user"]
 
 
+def safe_color(value: object) -> str:
+    """API colors go into SVG attributes, so accept only #RGB / #RRGGBB."""
+    if isinstance(value, str) and HEX_COLOR.fullmatch(value):
+        return value
+    return FALLBACK_COLOR
+
+
 def summarize(user: dict) -> dict:
     repos = user["repositories"]["nodes"]
     sizes: dict[str, list] = {}
     for repo in repos:
         for edge in repo["languages"]["edges"]:
-            name, color = edge["node"]["name"], edge["node"]["color"] or "#8b949e"
-            sizes.setdefault(name, [0, color])[0] += edge["size"]
+            name, color = str(edge["node"]["name"]), safe_color(edge["node"]["color"])
+            sizes.setdefault(name, [0, color])[0] += int(edge["size"])
     total = sum(v[0] for v in sizes.values()) or 1
     langs = sorted(((n, s / total, c) for n, (s, c) in sizes.items()), key=lambda x: -x[1])
     return {
-        "stars": sum(r["stargazerCount"] for r in repos),
-        "commits": user["contributionsCollection"]["totalCommitContributions"],
-        "prs": user["pullRequests"]["totalCount"],
-        "issues": user["issues"]["totalCount"],
-        "repos": user["repositories"]["totalCount"],
+        "stars": sum(int(r["stargazerCount"]) for r in repos),
+        "commits": int(user["contributionsCollection"]["totalCommitContributions"]),
+        "prs": int(user["pullRequests"]["totalCount"]),
+        "issues": int(user["issues"]["totalCount"]),
+        "repos": int(user["repositories"]["totalCount"]),
         "languages": langs,
         "date": dt.date.today().isoformat(),
     }
