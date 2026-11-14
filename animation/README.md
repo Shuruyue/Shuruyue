@@ -17,7 +17,7 @@ melted and then cooled until it crystallizes again.
 | Thermostat | Langevin, friction 0.02 fs<sup>-1</sup>, centre of mass fixed with `FixCom` |
 | Time step | 5 fs; a frame is saved every 100 steps (0.5 ps). Checked in a 2-ps constant-energy run of the 1400 K liquid: total energy drifts 0.011 meV/atom/ps (0.000 at 2 fs), negligible next to the thermostat |
 | Schedule (`--schedule fast`, used for the header) | 300 K for 20 ps → heat to 1400 K over 60 ps (18 K/ps) → hold 20 ps → cool to 300 K over 400 ps (2.75 K/ps) → hold 30 ps |
-| Alternative (`--schedule slow-freeze`) | same heating; cool at 4 K/ps to 1000 K, 1 K/ps to 600 K, 3 K/ps to 300 K; writes `data/cu561_slowfreeze_md.npz` |
+| Alternative (`--schedule slow-freeze`) | same heating; cool at 4 K/ps to 1000 K, 1 K/ps to 600 K, 3 K/ps to 300 K; writes `data/cu561_slowfreeze_md.npz` (result below) |
 | Seed | 7 (velocities and Langevin noise) |
 
 ## Analysis and rendering
@@ -66,6 +66,12 @@ axes, so its 309 interior atoms (55 %) are about the most that can be crystallin
 - **Why Cu<sub>561</sub>.** A test with Cu<sub>147</sub> and the same schedule ended with 0.6 % crystalline
   atoms (21 % at the start): at that size and rate it froze into a disordered cluster
   (`data/cu147_cna_fractions.csv`). 92 of its 147 atoms sit on the surface, against 252 of 561 here.
+- **Slower cooling did not crystallize.** The `slow-freeze` run (`data/cu561_slowfreeze_cna_fractions.csv`)
+  is identical to the one shown, bit for bit, up to 100 ps; five picoseconds after the schedules split,
+  some atoms already differ by more than an interatomic distance. Cooled at 1 K/ps from 1000 to 600 K, it
+  stayed liquid: small crystalline patches came and went, the crystalline fraction stayed below 3 % down to
+  600 K, and it ended at 4.2 % at 300 K, a disordered cluster. Nucleation is a random event, so one run per schedule cannot say how the cooling
+  rate changes the outcome.
 
 ## Differences from standard practice
 
@@ -78,7 +84,9 @@ axes, so its 309 interior atoms (55 %) are about the most that can be crystallin
   temperature close to the set point but also damps the atoms' motion, which slows diffusion and probably
   crystallization. The freezing temperatures above hold for this coupling only.
 - **One trajectory.** A single run with one seed; melting and freezing temperatures from it have no error
-  bars, and supercooling depends on the seed and the rate.
+  bars, and supercooling depends on the seed and the rate. The two schedules above show how much: the one
+  that cooled slowly through the freezing range did not crystallize at all. A rate study needs many seeds
+  per rate.
 - **Potential.** EMT is a fast, approximate many-body potential; its melting point and surface energies differ
   from experiment and from density functional theory.
 - **Surface atoms.** a-CNA labels atoms by their full neighbour shell, so surface atoms are "other" even in a
@@ -93,6 +101,8 @@ pip install -r requirements.txt
 python animation/crystallization_md.py --shells 6           # about 3 h on one CPU core (i5-13400)
 python animation/render_header.py --system cu561            # about 20 min; uses all cores
 python animation/render_header.py --system cu147 --csv-only # fractions only, for the Cu147 test
+python animation/crystallization_md.py --shells 6 --schedule slow-freeze   # about 4 h
+python animation/render_header.py --system cu561_slowfreeze --csv-only
 ```
 
 `render_header.py` uses Cascadia Mono (SIL Open Font License) from the Windows fonts folder; change `FONT` on
