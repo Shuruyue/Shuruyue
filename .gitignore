@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.log
+
+# large or intermediate animation files (rebuilt by animation/render_header.py)
+animation/data/*.xyz
+animation/data/*_frames/
+animation/data/test_*
+animation/data/preview-*.png

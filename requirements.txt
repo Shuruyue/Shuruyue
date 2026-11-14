@@ -1,0 +1,5 @@
+# Only for rebuilding the header animation (animation/). The cards need the standard library only.
+ase==3.29.0
+numpy==2.5.4
+pillow==13.0.0
+ovito==3.17.2
